@@ -25,13 +25,24 @@ class DCFramework:
         else:
             self.metrics = torch.nn.ModuleDict({"mae":torch.nn.L1Loss()})
 
+        #check if model is already on cuda
+        self.on_cuda = False
+        if next(model.parameters()).is_cuda:
+            self.on_cuda = True
+
     def forward(self, feature, target):
         try:
+            if self.on_cuda:
+                feature = feature.cuda()
             output = self.model(feature)
         except:
             logger.warning(f"feature: {feature}")
             raise
         try:
+            if self.on_cuda:
+                output = output.cuda()
+                target = target.cuda()
+
             loss = self.criterion(output, target)
             results = {}
             for name, metric in self.metrics.items():
@@ -58,7 +69,7 @@ class DCFramework:
                 self._val_loop(val_dataloader) #torch.no_grad is incorporated into the function
 
     @torch.no_grad()
-    def val(self, val_data: Dict[str, np.array], batch_size: int = 1): #TODO add metrics
+    def val(self, val_data: Dict[str, np.array], batch_size: int = 1):
         val_dataloader = self._prepare_loader(val_data, batch_size=batch_size)
         self._val_loop(val_dataloader)
 
@@ -89,12 +100,11 @@ class DCFramework:
 
     def cpu(self):
         self.to("cpu")
-
-    def gpu(self):
-        self.to("gpu")
+        self.on_cuda = False
 
     def cuda(self):
-        self.to("gpu")
+        self.to("cuda")
+        self.on_cuda = True
 
     def save(self, path: Path):
         state = {
@@ -102,3 +112,10 @@ class DCFramework:
             "optimizer": self.optimizer.state_dict(),
         }
         torch.save(state, path)
+
+    def load(self, path):
+        checkpoint = torch.load(path)
+        self.model.load_state_dict(checkpoint["model"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        if self.on_cuda:
+            self.to("cuda")
